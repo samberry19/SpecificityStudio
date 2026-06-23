@@ -30,6 +30,10 @@ def plot_boxplot(data, model, ax, palette=default_palette, hue_order=default_hue
     ax.set_title(model.replace("_", " "), fontsize=8)
 
 def StudioBoxplots(dataset, model_names, standardize_to_wt=True):
+    
+    '''
+    Make boxplots showing how each model scores the three classes of mutations for this dataset.
+    '''
 
     default_palette={"altered-specificity":"orangered", "native-specificity":"dodgerblue", "inactive":"lightgray", "other":"darkgray"}
     default_hue_order = ["native-specificity", "altered-specificity", "inactive"]
@@ -109,7 +113,8 @@ def model_classification_plot(dataset, protein, good_label="native-specificity",
                               filter_to_subs=1,
                               reverse_EVE=True,
                               ymax=1.45,
-                              ms=80):
+                              ms=80,
+                              title=None):
     
     data = dataset[protein]
 
@@ -118,6 +123,8 @@ def model_classification_plot(dataset, protein, good_label="native-specificity",
     
     if ax is None:
         fig, ax = plt.subplots(1,1, figsize=figsize)
+        
+    n_spec_change = len(selector(data, {'specificity_category': "altered-specificity"}))
     
     scores = []; colors = []
     for i,model in enumerate(model_names):
@@ -162,13 +169,18 @@ def model_classification_plot(dataset, protein, good_label="native-specificity",
     
     if x=="AUC":
         ax.set_xlim(auc_xlim[0], auc_xlim[1])
+        ax.set_xlabel("AUC (native-specificity vs. inactive)")
     elif x=="wt_spearman":
-        ax.set_xlabel("Spearman correlation with wild-type fitness")
+        ax.set_xlabel("Spearman with native fitness")
         ax.set_xlim(0.23, 0.65)
 
     ax.axhline(1, c='k', ls='dashed')
+    ax.set_ylabel("Altered specificity index")
     
-    return X
+    if title:
+        ax.set_title(title)
+        
+    return X, n_spec_change
 
 
 
@@ -448,3 +460,171 @@ def get_dataset(all_scores, prot, model_1, model_2=None, singles_only=True, doub
             'score_2': dataset[model_2].values,
             'y': dataset['y'].values
         }
+        
+
+def calculate_design_enrichment(X, log_p=True, log_auc=False, n_steps=25, plot=True, ax=None, figsize=(5,5), **kwargs):
+    
+    '''Calculate the design enrichment curve for a given set of scores and labels. 
+    
+    The design enrichment curve is the fold enrichment of positive examples (y=1) as a function of the percentage of sequences designed 
+    (i.e. the percentage of sequences with the highest scores). 
+    
+    The area under the design enrichment curve (AUDEC) is a measure of how well the model enriches for positive examples as you design more sequences. 
+    The L5 score is the fold enrichment when designing 5% of sequences.'''
+    
+    X = X.copy().sort_values('score', ascending=False).reset_index(drop=True)
+    
+    # initialize what percentages of the data we include
+    if log_p:
+        p_vals = [i for i in np.logspace(-2, 0, n_steps)]
+    else:
+        p_vals = [i for i in range(0, 1, n_steps)]
+
+    # calculate the number of sequences corresponding to each percentage
+    n_vals = np.array([int(p*len(X)) for p in p_vals])
+
+    # calculate the fold enrichment of positive examples at each percentage
+    curve = np.array([np.sum(X.iloc[:n].y) / (np.mean(X.y) * n) for n in n_vals])
+    l_5 = X.iloc[:int(0.05*len(X))].y.sum() / (np.mean(X.y) * int(0.05*len(X)))
+
+    if plot:
+        if ax is None:
+            plt.figure(figsize=(4,5))
+            ax = plt.gca()
+
+        ax.plot(p_vals, curve, **kwargs)
+    
+    audec = np.trapz(curve, p_vals) / np.trapz([1]*len(curve), p_vals)
+    
+    return curve, p_vals, l_5, audec
+
+default_model_colors = {model:color_key[model_classification[model]] for model in models}
+
+
+def EnrichmentAnalysis(all_scores, DMS_id, model_list,
+                  color_dict=default_model_colors,
+                  highlight_models=['Site_independent', 'ProteinMPNN', 'EVmutation', 'ESM1v', 'SaProt_650M_AF2'],
+                  ax=None, log_x=True, plot_perfect=False, figsize=(5,5), ensemble_color='purple', filter_to_singles=True, filter_to_doubles=False, filter_to_triples=False,
+                  **plot_kwargs):
+    
+    # We will report two metrics: the area under the design enrichment curve and the L5 score (the fold enrichment when designing 5% of sequences)
+    auc_results = {}; l5_results = {}
+    
+    # If no axis is provided, create one
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+        
+    # Horizontal line is super important
+    ax.axhline(1, c='k')
+    
+    # Loop through models and plot enrichment curves
+    for model in model_list:
+        
+        if model in all_scores[DMS_id] or 'weighted_ensemble' in model:
+            passed=True
+            
+            if 'weighted_ensemble' in model:
+                
+                color_dict[model] = ensemble_color
+                
+                # Identify the nature of the weighted ensemble passed
+                components = model.split(':')[1].split('+')
+                model_1 = components[0]
+                model_2 = components[1].split('*')[1]
+                alpha = float(components[1].split('*')[0])
+                
+                # Obviously both models must be present to plot the ensemble
+                if model_1 in all_scores[DMS_id] and model_2 in all_scores[DMS_id]:
+                    data = get_dataset(all_scores, DMS_id, model_1, model_2)
+                    data['weighted_ensemble'] = data['score_1'] + alpha * data['score_2']
+                    X = pd.DataFrame({'score':data['weighted_ensemble'], 'y':data['y']})
+                    
+                else:
+                    # If either model is missing, skip the ensemble
+                    passed = False
+                
+            else:
+            
+                if filter_to_singles:
+                    data = get_dataset(all_scores, DMS_id, model, singles_only=True)
+                elif filter_to_doubles:
+                    data = get_dataset(all_scores, DMS_id, model, singles_only=False, doubles_only=True)
+                X = pd.DataFrame({'score':data['score_1'], 'y':data['y']})
+                
+            if passed:
+            
+                if model in highlight_models or 'weighted_ensemble' in model:
+                    curve, p_vals, l_5, auc = calculate_design_enrichment(X, log_p=True, log_auc=True, n_steps=25, ax=ax, c=color_dict[model], lw=1.5, **plot_kwargs)
+                else:
+                    curve, p_vals, l_5, auc = calculate_design_enrichment(X, log_p=True, log_auc=True, n_steps=25, ax=ax, c=color_dict[model], lw=0.75, alpha=0.5, **plot_kwargs)
+                    
+                if 'weighted_ensemble' in model:
+                    model = f"Ensemble ({model_1}, {model_2})"
+                    
+                auc_results[model] = auc
+                l5_results[model] = l_5
+
+    if plot_perfect:
+        data = get_dataset(all_scores, DMS_id, 'Site_independent')
+        data['perfect_pred'] = data['y'].astype(float)
+        X = pd.DataFrame({'score':data['perfect_pred'], 'y':data['y']})
+        curve, p_vals, l_5, auc = calculate_design_enrichment(X, log_p=True, log_auc=False, n_steps=25, ax=ax, lw=1, c='k')
+        auc_results['max'] = auc
+        l5_results['max'] = l_5
+
+    auc_results = pd.DataFrame.from_dict(auc_results, orient='index', columns=['AUC']).reset_index().rename(columns={'index':'model'})
+    l5_results = pd.DataFrame.from_dict(l5_results, orient='index', columns=['L5']).reset_index().rename(columns={'index':'model'})
+
+    if log_x:
+        ax.set_xscale('log')
+    ax.axhline(1, c='k', ls='--')
+
+    return auc_results.rename({'AUC':f'AUC_{DMS_id}'}, axis=1).set_index('model'), l5_results.rename({'L5':f'L5_{DMS_id}'}, axis=1).set_index('model')
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
+
+def get_custom_coords(model_to_class, intra_gap=0.2, inter_gap=1.0):
+    """
+    Generates x-coordinates based on category groupings.
+    """
+    # Group models by their class
+    from collections import defaultdict
+    class_groups = defaultdict(list)
+    for model, m_class in model_to_class.items():
+        class_groups[m_class].append(model)
+    
+    coords = {}
+    current_pos = 0.0
+    
+    for i, (m_class, models) in enumerate(class_groups.items()):
+        # If not the first group, add the large inter-category gap
+        if i > 0:
+            current_pos += inter_gap
+            
+        for j, model in enumerate(models):
+            # If not the first model in a group, add the small intra-category gap
+            if j > 0:
+                current_pos += intra_gap
+            coords[model] = current_pos
+            
+    return coords
+
+protein_color_map = {
+    'pdz': "#6baed6",
+    'amiE': "#e6550d",
+    'blat': "#fd8d3c",
+    'pafa': "#fdd0a2",
+    'pho4': "#31a354",
+    'ramR': "#a1d99b",
+    'norA': "#756bb1",
+    'nramp': "#bcbddc"
+}
+
+
+from matplotlib import cm
+def map_cmap_to_proteins(protein_color_map, cmap):
+    n = len(protein_color_map)
+    colors = [cmap(i/n) for i in range(n)]
+    return {protein: colors[i] for i, protein in enumerate(protein_color_map.keys())}
