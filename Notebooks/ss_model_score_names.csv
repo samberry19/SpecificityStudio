@@ -1,0 +1,16 @@
+model,col
+Site_independent,independent_score
+EVmutation,couplings_score
+EVE,evol_indices_seed_77
+GEMME,GEMME
+ESM1v,Ensemble_ESM1v
+ESM2,esm2_t33_650M_UR50D
+Progen2,Progen2_score
+Tranception_no_retrieval,avg_score
+MSA_Transformer,esm_msa1b_t12_100M_UR50S_ensemble
+PoET,PoET_score
+ProteinMPNN,pmpnn_ll
+ESM-IF1,esmif1_ll
+SaProt_650M_AF2,SaProt_score
+ESCOTT,ESCOTT
+METL,METL_YoQkzoLD
