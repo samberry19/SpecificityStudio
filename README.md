@@ -2,7 +2,7 @@
 
 <img width="200" height="200" alt="image" src="https://github.com/user-attachments/assets/d4003c0b-5668-479b-8adc-627b9fd857f8" />
 
-Code for the benchmark dataset for understanding how different protein fitness models score and design variants of altered specificity and to reproduce all analyses in the paper "Differences between protein fitness models can be used to design variants of altered specificity" by Samuel P Berry, Rachelle Gaudet and Debora S Marks.
+Code for the benchmark dataset for understanding how different protein fitness models score and design variants of altered specificity and to reproduce all analyses in the paper "Differences between protein fitness models can be used to design variants of altered specificity" by Samuel P Berry, Rachelle Gaudet and Debora S Marks. Please download the actual data from the [Zenodo dataset](https://zenodo.org/records/20820568).
 
 All main text figures and analyses can be found under ```Notebooks```, as can individual .ipynb notebooks for processing assay data.
 
